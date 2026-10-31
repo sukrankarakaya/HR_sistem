@@ -22,3 +22,6 @@ test-results/
 *.pem
 .DS_Store
 .vercel
+
+# prisma generate çıktısı
+src/generated/

@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Test kapsam raporu
     "coverage/**",
+    // prisma generate çıktısı
+    "src/generated/**",
   ]),
 ]);
 

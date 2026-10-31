@@ -12,10 +12,12 @@ Küçük işletmeler için kağıtsız, donanımsız ve Türk İş Kanunu'na haz
 🚧 Faz 0 — Spec ve proje iskeleti hazır; Faz 1 geliştirmesi başlıyor.
 
 ## Geliştirme
-Gereksinim: Node.js 22+
+Gereksinimler: Node.js 22+, PostgreSQL ([Postgres.app](https://postgresapp.com) önerilir)
 
 ```bash
-npm install
+cp .env.example .env   # DATABASE_URL'i düzenleyin
+npm install            # Prisma istemcisini de üretir
+npm run db:migrate     # şemayı veritabanına uygular
 npm run dev            # http://localhost:3000
 npm test               # birim testler
 npm run test:coverage  # src/domain için %90 kapsam şartı

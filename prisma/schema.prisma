@@ -1,0 +1,343 @@
+// Veri modeli — docs/spec.md 4. bölüm
+// Kimlik doğrulama tabloları (User, Session ...) kimlik adımında eklenecek;
+// o zamana kadar kullanıcıya işaret eden alanlar düz `String` tutulur.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Organizasyon ve şirket ────────────────────────────────────────────
+
+/// SaaS müşterisi / patron hesabı. Tüm veriler bir organizasyona aittir.
+model Organization {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  companies        Company[]
+  officeNetworks   OfficeNetwork[]
+  employees        Employee[]
+  attendanceEvents AttendanceEvent[]
+  leaveRequests    LeaveRequest[]
+  leaveLedger      LeaveLedgerEntry[]
+  auditLogs        AuditLog[]
+}
+
+/// Yasal işveren (ör. Saint de Lumière, Dermodies).
+model Company {
+  id                    String   @id @default(uuid(7)) @db.Uuid
+  organizationId        String   @db.Uuid
+  name                  String
+  legalName             String?
+  address               String?
+  /// KVKK veri sorumlusu iletişim bilgisi (K2)
+  dataControllerContact String?
+  /// Sisteme geçiş tarihi; açılış bakiyeleri bu tarihe göre girilir (B2)
+  goLiveDate            DateTime @db.Date
+  createdAt             DateTime @default(now()) @db.Timestamptz
+
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  settings       CompanySettings?
+  workSchedules  WorkSchedule[]
+  networks       CompanyNetwork[]
+  employees      Employee[]
+  periodCloses   PeriodClose[]
+  privacyNotices PrivacyNotice[]
+
+  @@index([organizationId])
+}
+
+/// Şirket kuralları (K4). Varsayılanlar pilot ayarlarıdır.
+model CompanySettings {
+  companyId                    String  @id @db.Uuid
+  lateToleranceMinutes         Int     @default(15)
+  correctionWindowDays         Int     @default(7)
+  offNetworkRequiresApproval   Boolean @default(false)
+  manualNoteRequired           Boolean @default(false)
+  advanceLeaveAllowed          Boolean @default(false)
+  checkoutReminderDelayMinutes Int     @default(15)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// Sürümlü çalışma takvimi: geçmiş günler kendi tarihindeki sürümle hesaplanır (4.1, K9).
+model WorkSchedule {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  companyId String   @db.Uuid
+  validFrom DateTime @db.Date
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  company Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  days    WorkScheduleDay[]
+
+  @@unique([companyId, validFrom])
+}
+
+/// Takvimde satırı olmayan gün çalışılmayan gündür.
+model WorkScheduleDay {
+  scheduleId   String @db.Uuid
+  /// 0 = Pazar … 6 = Cumartesi
+  weekday      Int    @db.SmallInt
+  /// Gece yarısından itibaren dakika (08:30 → 510)
+  startMinute  Int    @db.SmallInt
+  endMinute    Int    @db.SmallInt
+  breakMinutes Int    @db.SmallInt
+
+  schedule WorkSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@id([scheduleId, weekday])
+}
+
+/// Ofis ağı organizasyon seviyesindedir; aynı modemi kullanan şirketler paylaşır (4.1).
+model OfficeNetwork {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @db.Uuid
+  name           String
+  /// Tek IP için /32 (IPv4) veya /128 (IPv6)
+  cidr           String
+  createdAt      DateTime @default(now()) @db.Timestamptz
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  companies    CompanyNetwork[]
+
+  @@index([organizationId])
+}
+
+model CompanyNetwork {
+  companyId       String @db.Uuid
+  officeNetworkId String @db.Uuid
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  officeNetwork OfficeNetwork @relation(fields: [officeNetworkId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, officeNetworkId])
+}
+
+/// Kapanmış ay; kapanıştan sonraki değişiklikler onaya düşer (P1–P3).
+model PeriodClose {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  companyId  String   @db.Uuid
+  year       Int      @db.SmallInt
+  month      Int      @db.SmallInt
+  closedAt   DateTime @default(now()) @db.Timestamptz
+  closedById String
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, year, month])
+}
+
+// ─── Personel ──────────────────────────────────────────────────────────
+
+model Employee {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  organizationId  String    @db.Uuid
+  companyId       String    @db.Uuid
+  /// Davet kabul edilene kadar boş
+  userId          String?   @unique
+  firstName       String
+  lastName        String
+  email           String
+  hireDate        DateTime  @db.Date
+  birthDate       DateTime  @db.Date
+  terminationDate DateTime? @db.Date
+  isRemote        Boolean   @default(false)
+  createdAt       DateTime  @default(now()) @db.Timestamptz
+
+  organization     Organization       @relation(fields: [organizationId], references: [id])
+  company          Company            @relation(fields: [companyId], references: [id])
+  attendanceEvents AttendanceEvent[]
+  leaveRequests    LeaveRequest[]
+  leaveLedger      LeaveLedgerEntry[]
+  consents         ConsentRecord[]
+
+  @@unique([organizationId, email])
+  @@index([companyId])
+}
+
+// ─── Giriş-çıkış ───────────────────────────────────────────────────────
+
+enum AttendanceType {
+  CLOCK_IN
+  CLOCK_OUT
+}
+
+enum AttendanceMethod {
+  BUTTON
+  MANUAL
+  CORRECTION
+}
+
+enum NetworkCheck {
+  MATCHED
+  NOT_MATCHED
+  DISABLED
+}
+
+enum AttendanceStatus {
+  ACTIVE
+  PENDING
+  REJECTED
+  SUPERSEDED
+}
+
+/// Giriş-çıkış olayı. Silinmez; düzeltme yeni bir olay olarak eklenir (4.2, D2).
+model AttendanceEvent {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  organizationId String           @db.Uuid
+  employeeId     String           @db.Uuid
+  type           AttendanceType
+  occurredAt     DateTime         @db.Timestamptz
+  recordedAt     DateTime         @default(now()) @db.Timestamptz
+  method         AttendanceMethod
+  networkCheck   NetworkCheck
+  status         AttendanceStatus
+  ipAddress      String?
+  note           String?
+  supersedesId   String?          @db.Uuid
+  createdById    String
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  employee     Employee          @relation(fields: [employeeId], references: [id])
+  supersedes   AttendanceEvent?  @relation("Correction", fields: [supersedesId], references: [id])
+  correctedBy  AttendanceEvent[] @relation("Correction")
+
+  @@index([employeeId, occurredAt])
+  @@index([organizationId, status])
+}
+
+// ─── İzin ──────────────────────────────────────────────────────────────
+
+enum LeaveKind {
+  ANNUAL
+  UNPAID
+  SICK
+  MARRIAGE
+  BEREAVEMENT
+  PATERNITY
+  OTHER
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  organizationId String             @db.Uuid
+  employeeId     String             @db.Uuid
+  kind           LeaveKind
+  startDate      DateTime           @db.Date
+  endDate        DateTime           @db.Date
+  /// countLeaveDays ile hesaplanır (I4, I5)
+  days           Decimal            @db.Decimal(5, 1)
+  status         LeaveRequestStatus @default(PENDING)
+  note           String?
+  decidedAt      DateTime?          @db.Timestamptz
+  decidedById    String?
+  decisionNote   String?
+  createdAt      DateTime           @default(now()) @db.Timestamptz
+
+  organization  Organization       @relation(fields: [organizationId], references: [id])
+  employee      Employee           @relation(fields: [employeeId], references: [id])
+  ledgerEntries LeaveLedgerEntry[]
+
+  @@index([employeeId, startDate])
+  @@index([organizationId, status])
+}
+
+enum LedgerEntryType {
+  OPENING_BALANCE
+  ENTITLEMENT
+  USAGE
+  USAGE_REVERSAL
+  ADJUSTMENT
+}
+
+/// İzin defteri. Bakiye saklanmaz; bu kayıtların toplamıdır (4.1).
+model LeaveLedgerEntry {
+  id             String          @id @default(uuid(7)) @db.Uuid
+  organizationId String          @db.Uuid
+  employeeId     String          @db.Uuid
+  type           LedgerEntryType
+  /// İşaretli: hak ediş +, kullanım −
+  days           Decimal         @db.Decimal(5, 1)
+  effectiveDate  DateTime        @db.Date
+  leaveRequestId String?         @db.Uuid
+  note           String?
+  createdById    String?
+  createdAt      DateTime        @default(now()) @db.Timestamptz
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  employee     Employee      @relation(fields: [employeeId], references: [id])
+  leaveRequest LeaveRequest? @relation(fields: [leaveRequestId], references: [id])
+
+  @@index([employeeId, effectiveDate])
+}
+
+enum HolidayKind {
+  FULL
+  HALF
+}
+
+/// Ulusal resmi tatiller (tüm organizasyonlar için ortak).
+model Holiday {
+  date DateTime    @id @db.Date
+  kind HolidayKind
+  name String
+}
+
+// ─── KVKK ve denetim ───────────────────────────────────────────────────
+
+model PrivacyNotice {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  companyId   String    @db.Uuid
+  version     Int
+  content     String
+  publishedAt DateTime? @db.Timestamptz
+  createdAt   DateTime  @default(now()) @db.Timestamptz
+
+  company  Company         @relation(fields: [companyId], references: [id])
+  consents ConsentRecord[]
+
+  @@unique([companyId, version])
+}
+
+model ConsentRecord {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  employeeId      String   @db.Uuid
+  privacyNoticeId String   @db.Uuid
+  acceptedAt      DateTime @default(now()) @db.Timestamptz
+  ipAddress       String?
+
+  employee      Employee      @relation(fields: [employeeId], references: [id])
+  privacyNotice PrivacyNotice @relation(fields: [privacyNoticeId], references: [id])
+
+  @@unique([employeeId, privacyNoticeId])
+}
+
+model AuditLog {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @db.Uuid
+  actorId        String?
+  action         String
+  entityType     String
+  entityId       String
+  before         Json?
+  after          Json?
+  ipAddress      String?
+  createdAt      DateTime @default(now()) @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}
