@@ -18,6 +18,7 @@ Gereksinimler: Node.js 22+, PostgreSQL ([Postgres.app](https://postgresapp.com) 
 cp .env.example .env   # DATABASE_URL'i düzenleyin
 npm install            # Prisma istemcisini de üretir
 npm run db:migrate     # şemayı veritabanına uygular
+npm run db:seed        # resmi tatiller + kurgusal demo verisi (SEED_DEMO=false ile yalnızca tatiller)
 npm run dev            # http://localhost:3000
 npm test               # birim testler
 npm run test:coverage  # src/domain için %90 kapsam şartı

@@ -28,3 +28,16 @@ export function fromEpochDay(epochDay: number): LocalDate {
 export function weekdayOf(epochDay: number): Weekday {
   return new Date(epochDay * DAY_MS).getUTCDay() as Weekday;
 }
+
+/**
+ * İki tarih arasında tamamlanan tam yıl sayısı (kıdem yılı, yaş).
+ * Yıl, aynı ay/gün gelince dolar; 29 Şubat artık olmayan yılda 1 Mart'ta dolar.
+ */
+export function wholeYearsBetween(from: LocalDate, to: LocalDate): number {
+  if (toEpochDay(to) < toEpochDay(from)) {
+    throw new RangeError(`Bitiş tarihi başlangıçtan önce olamaz: ${from} → ${to}`);
+  }
+  const years = Number(to.slice(0, 4)) - Number(from.slice(0, 4));
+  // "MM-DD" metinleri sözlük sırasıyla karşılaştırılabilir
+  return to.slice(5) >= from.slice(5) ? years : years - 1;
+}
