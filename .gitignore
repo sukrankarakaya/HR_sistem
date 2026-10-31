@@ -1,14 +1,24 @@
+# bağımlılıklar
 node_modules/
+
+# next.js / derleme
 .next/
 out/
 build/
+*.tsbuildinfo
+next-env.d.ts
+
+# test
 coverage/
 playwright-report/
 test-results/
-.env
-.env*.local
+
+# ortam değişkenleri (örnek dosya hariç)
+.env*
+!.env.example
+
+# diğer
 *.log
+*.pem
 .DS_Store
 .vercel
-*.tsbuildinfo
-next-env.d.ts

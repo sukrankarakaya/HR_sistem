@@ -9,7 +9,21 @@ Küçük işletmeler için kağıtsız, donanımsız ve Türk İş Kanunu'na haz
 - **Ay sonu tek tık:** Şirket bazında Excel puantaj dökümü.
 
 ## Durum
-🚧 Faz 0 — Spesifikasyon aşamasında.
+🚧 Faz 0 — Spec ve proje iskeleti hazır; Faz 1 geliştirmesi başlıyor.
+
+## Geliştirme
+Gereksinim: Node.js 22+
+
+```bash
+npm install
+npm run dev            # http://localhost:3000
+npm test               # birim testler
+npm run test:coverage  # src/domain için %90 kapsam şartı
+npm run lint
+npm run typecheck
+```
+
+İş kuralları `src/domain/` altında, framework'ten bağımsız saf TypeScript olarak yazılır ve her kural `docs/spec.md`'deki numarasıyla (ör. I2) testlerde referans alınır.
 
 ## Belgeler
 - [Ürün spesifikasyonu](docs/spec.md)
